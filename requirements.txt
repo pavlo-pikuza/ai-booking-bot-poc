@@ -1,1 +1,4 @@
 flask
+plotly
+sqlalchemy
+dotenv
