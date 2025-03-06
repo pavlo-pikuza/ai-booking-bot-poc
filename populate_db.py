@@ -2,16 +2,23 @@ from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 from database import SessionLocal, Client, Service, Appointment
 import random
+import os
+from dotenv import load_dotenv
 
-# Open a database session
-db: Session = SessionLocal()
+load_dotenv()
 
-# 🔹 1. Add clients
-clients = [
-    Client(name="Alice"),
-    Client(name="Bob"),
-    Client(name="Charlie"),
-]
+WORK_HOURS_START = int(os.getenv("WORK_HOURS_START", 9))
+WORK_HOURS_END = int(os.getenv("WORK_HOURS_END", 16))
+BREAK_TIME = int(os.getenv("BREAK_TIME", 10))
+SLOT_DURATION = int(os.getenv("SLOT_DURATION", 50))
+WORK_DAYS = os.getenv("WORK_DAYS", "").split(",")
+
+DB_FILE  = os.getenv("DATABASE_URL", "").replace("sqlite:///", "")
+
+
+    print(DB_FILE)
+    if not os.path.exists(DB_FILE):
+        print("🆕 Creating new database...")
 
 db.add_all(clients)
 db.commit()
@@ -33,24 +40,17 @@ db.commit()
 service_dict = {service.name: service.id for service in db.query(Service).all()}
 
 # 🔹 3. Generate appointments for the next 7 days
-start_date = datetime.now().replace(hour=9, minute=0, second=0, microsecond=0)  # Start at 9:00 AM
-appointments = []
+    start_date = datetime.now().replace(hour=WORK_HOURS_START, minute=0, second=0, microsecond=0)
+    appointments = []
 
-for client_name, client_id in client_dict.items():
-    for day_offset in range(5):  # Generate for one week
-        day_start = start_date + timedelta(days=day_offset)  # Start of the day
-        current_time = day_start  # Start time for appointments
-
-        # Assign 3-4 appointments per day per client
-        for _ in range(3):
-            service_name, service_id = random.choice(list(service_dict.items()))  # Randomly select a service
-            
-            appointments.append(
-                Appointment(client_id=client_id, service_id=service_id, start_time=current_time)
-            )
-            
-            # Add a 10-minute gap before the next appointment
-            current_time += timedelta(minutes=services[service_id - 1].duration + 10)
+    for day_offset in range(len(WORK_DAYS)):
+        day_start = start_date + timedelta(days=day_offset)
+        while current_time.hour < WORK_HOURS_END:  # Ensure within working hours
+            service_name, service_id = random.choice(list(service_dict.items()))  # Select a random service
+                booked_times.append((current_time, current_time + timedelta(minutes=service_duration + BREAK_TIME)))
+                current_time += timedelta(minutes=service_duration + BREAK_TIME)
+            else:
+                current_time += timedelta(minutes=BREAK_TIME)  # Skip 10 minutes if the slot is occupied
 
 # 🔹 4. Insert all appointments into the database
 db.add_all(appointments)
