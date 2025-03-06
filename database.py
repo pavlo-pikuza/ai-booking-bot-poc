@@ -9,6 +9,8 @@ load_dotenv()
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+# Database configuration
 Base = declarative_base()
 
 # Client model
@@ -39,9 +41,6 @@ class Conversation(Base):
     client_id = Column(Integer)
     message = Column(String)
     timestamp = Column(DateTime, default=datetime.utcnow)
-
-# Create tables
-Base.metadata.create_all(bind=engine)
 
 def get_db():
     db = SessionLocal()
