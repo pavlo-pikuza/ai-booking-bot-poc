@@ -169,3 +169,30 @@ def get_appointments(db):
     ]
     return pd.DataFrame(result)
 
+def get_available_slots(db):
+    appointments = db.query(Appointment).all()
+    services = {s.id: s.duration for s in db.query(Service).all()}
+
+    slots = {}
+
+    for day in WORK_DAYS:
+        slots[day] = []
+        start_time = datetime.strptime(f"{day} {WORK_HOURS_START}:00", "%A %H:%M")
+        end_time = datetime.strptime(f"{day} {WORK_HOURS_END}:00", "%A %H:%M")
+        current_time = start_time
+
+        while current_time + timedelta(minutes=SLOT_DURATION) <= end_time:
+            is_free = True
+            for appointment in appointments:
+                app_start = appointment.start_time
+                app_end = app_start + timedelta(minutes=services.get(appointment.service_id, SLOT_DURATION))
+                
+                if not (current_time >= app_end or current_time + timedelta(minutes=SLOT_DURATION) <= app_start):
+                    is_free = False
+                    break
+
+            if is_free:
+                slots[day].append(current_time.strftime("%H:%M"))
+            current_time += timedelta(minutes=SLOT_DURATION + BREAK_TIME)
+    
+    return slots
