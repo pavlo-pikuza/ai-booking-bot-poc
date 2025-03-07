@@ -1,3 +1,5 @@
+numpy
+pandas
 flask
 plotly
 sqlalchemy

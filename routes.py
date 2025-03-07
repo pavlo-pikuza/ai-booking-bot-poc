@@ -1,11 +1,13 @@
-from flask import Flask, request, jsonify
-from sqlalchemy.orm import sessionmaker, Session
+from flask import Flask, request, jsonify, render_template
+from sqlalchemy.orm import sessionmaker, Session, joinedload
 from sqlalchemy import and_, create_engine
 from datetime import datetime, timedelta
 import os
 from dotenv import load_dotenv
 from database import Base, Appointment, Client, Service, SessionLocal
 import functools
+from utils import shedule_plot
+import pandas as pd
 
 # Load environment variables
 load_dotenv()
@@ -26,39 +28,17 @@ def db_session_handler(func):
         try:
             return func(db, *args, **kwargs)
         except Exception as e:
-            print(f"❌ Database error in {func.__name__}: {e}")
-            return jsonify({"error": "Database error"}), 500
+            return jsonify({"error": "Database error","function":f"{func.__name__}", "message":f"{e}"}), 500
         finally:
             db.close()
     return wrapper
 
-def get_available_slots(db):
-    appointments = db.query(Appointment).all()
-    services = {s.id: s.duration for s in db.query(Service).all()}
-
-    slots = {}
-
-    for day in WORK_DAYS:
-        slots[day] = []
-        start_time = datetime.strptime(f"{day} {WORK_HOURS_START}:00", "%A %H:%M")
-        end_time = datetime.strptime(f"{day} {WORK_HOURS_END}:00", "%A %H:%M")
-        current_time = start_time
-
-        while current_time + timedelta(minutes=SLOT_DURATION) <= end_time:
-            is_free = True
-            for appointment in appointments:
-                app_start = appointment.start_time
-                app_end = app_start + timedelta(minutes=services.get(appointment.service_id, SLOT_DURATION))
-                
-                if not (current_time >= app_end or current_time + timedelta(minutes=SLOT_DURATION) <= app_start):
-                    is_free = False
-                    break
-
-            if is_free:
-                slots[day].append(current_time.strftime("%H:%M"))
-            current_time += timedelta(minutes=SLOT_DURATION + BREAK_TIME)
-    
-    return slots
+@app.route('/')
+@db_session_handler
+def index(db):
+    appointments = get_appointments(db)
+    shedule_plot(appointments)
+    return render_template('index.html')
 
 # 🔹 GET /available_slots – Get all available slots
 @app.route('/available_slots', methods=['GET'])
@@ -86,16 +66,15 @@ def get_services(db):
 # 🔹 GET /appointments – List all appointments
 @app.route('/appointments', methods=['GET'])
 @db_session_handler
-def get_appointments(db):
+def get_all_appointments(db):
     appointments = db.query(Appointment).all()
     result = [
         {
             'id': a.id,
             'client_id': a.client_id,
-            'client_name': db.query(Client.name).filter(Client.id == a.client_id).scalar(),
             'service_id': a.service_id,
-            'service_name': db.query(Service.name).filter(Service.id == a.service_id).scalar(),
-            'start_time': a.start_time.strftime('%Y-%m-%d %H:%M')
+            'start_time': a.start_time.strftime('%Y-%m-%d %H:%M'),
+            'day': a.day
         }
         for a in appointments
     ]
@@ -170,6 +149,23 @@ def delete_appointment(db, appointment_id):
     
     return jsonify({'message': 'Appointment deleted successfully'}), 200
 
-# Запуск сервера Flask
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+def get_appointments(db):
+    appointments = db.query(Appointment) \
+        .options(joinedload(Appointment.client), joinedload(Appointment.service)) \
+        .all()
+    result = [
+        {
+            'id': a.id,
+            'client_id': a.client_id,
+            'client': a.client.name,
+            'service_id': a.service_id,
+            'service': a.service.name,
+            'start_time': a.start_time.strftime('%Y-%m-%d %H:%M'),
+            'end_time': (a.start_time + timedelta(minutes=a.service.duration)).strftime('%Y-%m-%d %H:%M'),
+            'duration': a.service.duration,
+            'day': a.day,
+        }
+        for a in appointments
+    ]
+    return pd.DataFrame(result)
+

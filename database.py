@@ -1,5 +1,5 @@
 from sqlalchemy import Column, Integer, String, DateTime, create_engine, ForeignKey
-from sqlalchemy.orm import sessionmaker, declarative_base, Session
+from sqlalchemy.orm import sessionmaker, declarative_base, Session, relationship, configure_mappers
 from datetime import datetime
 import os
 from dotenv import load_dotenv
@@ -10,6 +10,8 @@ DATABASE_URL = os.getenv("DATABASE_URL", "")
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
+configure_mappers()
+
 # Database configuration
 Base = declarative_base()
 
@@ -18,6 +20,7 @@ class Client(Base):
     __tablename__ = "clients"
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String)
+    appointments = relationship("Appointment", back_populates="client")
 
 # Service model
 class Service(Base):
@@ -25,6 +28,7 @@ class Service(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, unique=True, index=True)
     duration = Column(Integer)  # Duration in minutes
+    appointments = relationship("Appointment", back_populates="service")
 
 # Appointment model
 class Appointment(Base):
@@ -33,6 +37,10 @@ class Appointment(Base):
     client_id = Column(Integer, ForeignKey("clients.id"))
     service_id = Column(Integer, ForeignKey("services.id"))
     start_time = Column(DateTime)
+    day = Column(String)
+
+    client = relationship("Client", back_populates="appointments")
+    service = relationship("Service", back_populates="appointments")
 
 # Conversation model
 class Conversation(Base):
