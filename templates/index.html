@@ -3,16 +3,91 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Scheduler PoC</title>
+    <title>AI Scheduler</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
     <script defer src="{{ url_for('static', filename='script.js') }}"></script>    
 </head>
 <body>
+    <header>
+        <div class="box">
+            <div class="menu-button" id="stromeit"><a href="https://stromeitconsulting.ca/">Strome IT Consulting</a></div>
+            <div class="menu-button" id = "readMe"> ReadMe</div>
+        </div>
+        <div class="box">
+            <div class="clock-container">
+                <div id="clock"></div>
+                <div class="time-setter">
+                    <button id="open-time-modal">Set Time</button>
+                </div>
+            </div>
+        </div>
+        <div class="box">
+    </header>
+
+    <div id="readme-modal" class="modal">
+        <div class="modal-content">
+            <span class="close-btn" id="closeModal">&times;</span>
+        
+            <h2>AI Scheduler 🤖</h2>
+
+            <h3>Overview 📌</h3>
+            <p>
+                This is a PoC project demonstrating how LLM APIs like <u>ChatGPT</u> or <u>DeepSeek</u> 
+                can be integrated into an existing system, for example, a <b>small beauty boutique 💅</b> that provides services:
+                <ul id="services-list"></ul>
+            </p>
+            
+            <h3>Client Interaction 🗣️</h3>
+            <p id="clients-list"></p>
+            <ul>
+                <li>📅 <b>Schedule</b> a new appointment.</li>
+                <li>🔄 <b>Reschedule</b> an existing appointment.</li>
+                <li>⏳ <b>Inform</b> about a delay.</li>
+                <li>❌ <b>Cancel</b> an appointment.</li>
+            </ul>
+            
+            <h3>Simulation Mechanics ⏳</h3>
+            <p>
+                This is a time-accelerated simulation. You can <b>freeze</b> the clock or <b>set a target time ⏰</b> for testing. In this system:
+            </p>
+            <ul>
+                <li>⏱️ 5 real-world seconds equal 1 simulation minute.</li>
+                <li>⏳ Time automatically resets to <b>9 AM</b> the next day after reaching <b>4:05 PM</b>.</li>
+                <li>📆 Friday transitions directly to Monday.</li>
+            </ul>
+        
+            <button class="try-btn">Try it!</button>
+        </div>
+    </div>
+    
+    <div id="time-modal" class="modal">
+        <div class="modal-content">
+            <span class="close-btn" id="close-time-modal">&times;</span>
+            <h2>Set Simulation Time</h2>
+    
+            <label for="day-select">Day:</label>
+            <select id="day-select">
+                <option value="Monday">Monday</option>
+                <option value="Tuesday">Tuesday</option>
+                <option value="Wednesday">Wednesday</option>
+                <option value="Thursday">Thursday</option>
+                <option value="Friday">Friday</option>
+            </select>
+    
+            <label for="hour-input">Hour:</label>
+            <input type="number" id="hour-input" min="9" max="16" value="9">
+    
+            <label for="minute-input">Minute:</label>
+            <input type="number" id="minute-input" min="0" max="59" value="0">
+    
+            <button id="set-time-btn">Set</button>
+        </div>
+    </div>
+
     <div class="container">
         <div class="schedule">
-            <h2>Schedule</h2>
-            <iframe src="{{ url_for('static', filename='schedule_plot.html') }}" width="100%" height="600px"></iframe>
-        </div>
+            <iframe id="plot-frame" src="{{ url_for('static', filename='schedule_plot.html') }}" width="100%" height="600px"></iframe>
+        </div>        
         <div class="chat">
             <select class="client-selector">
             </select>

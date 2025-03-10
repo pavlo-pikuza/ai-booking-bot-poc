@@ -20,6 +20,9 @@ BREAK_TIME = int(os.getenv("BREAK_TIME", 0))
 SLOT_DURATION = int(os.getenv("SLOT_DURATION", 0))
 WORK_DAYS = os.getenv("WORK_DAYS", "").split(",")
 
+simulation_time = datetime.strptime("Monday 09:00", "%A %H:%M")
+clock_running = True
+
 def db_session_handler(func):
     """Decorator to handle database session management and error handling."""
     @functools.wraps(func)
@@ -33,11 +36,77 @@ def db_session_handler(func):
             db.close()
     return wrapper
 
+@db_session_handler
+def advance_time(db):
+    global simulation_time
+    if clock_running:
+        simulation_time += timedelta(minutes=1)
+
+        if simulation_time.hour == 16 and simulation_time.minute == 1:
+            current_day = simulation_time.strftime("%A")
+            current_day_index = WORK_DAYS.index(current_day)
+            if current_day_index == len(WORK_DAYS) - 1:
+                next_day = WORK_DAYS[0]
+            else:
+                next_day = WORK_DAYS[current_day_index + 1]
+        
+            simulation_time = datetime.strptime(f"1970-01-0{5 + WORK_DAYS.index(next_day)} 08:59", "%Y-%m-%d %H:%M")
+
+        appointments = get_appointments(db)
+        shedule_plot(appointments, simulation_time)
+
+@app.route("/time", methods=["GET", "POST"])
+def get_time():
+    global clock_running, simulation_time
+    if request.method == "POST":
+        data = request.get_json()
+
+        if not data:
+            return jsonify({"error": "No data received"}), 400
+
+        if data.get("action") == "toggle":
+            clock_running = not clock_running
+
+        elif data.get("action") == "set":
+            try:
+                new_time = data.get("time")  # "Monday 10:15"
+                if not new_time:
+                    return jsonify({"error": "No time provided"}), 400
+
+                day_name, time_str = new_time.split(" ")
+                new_hour, new_minute = map(int, time_str.split(":"))
+
+                if day_name not in WORK_DAYS:
+                    return jsonify({"error": "Invalid day"}), 400
+                
+                if new_hour < 9 or new_hour > 15:
+                    return jsonify({"error": "Invalid hour"}), 400
+
+                simulation_time = datetime.strptime(f"1970-01-0{5 + WORK_DAYS.index(day_name)} {new_hour}:{new_minute}", "%Y-%m-%d %H:%M")
+
+                return jsonify({"success": True,
+                                "time": simulation_time.strftime("%A %H:%M"),
+                                "status": "running" if clock_running else "stopped"})
+
+            except Exception as e:
+                return jsonify({"error": "Invalid time format", "message": str(e)}), 400
+
+    return jsonify({
+        "time": simulation_time.strftime("%A %H:%M"),
+        "status": "running" if clock_running else "stopped"
+    })
+
+@app.route("/plot_data")
+def plot_data():
+    with open("static/schedule_plot.html", "r", encoding="utf-8") as f:
+        plot_html = f.read()
+    return jsonify({"plot": plot_html})
+
 @app.route('/')
 @db_session_handler
 def index(db):
     appointments = get_appointments(db)
-    shedule_plot(appointments)
+    shedule_plot(appointments, simulation_time)
     return render_template('index.html')
 
 # 🔹 GET /available_slots – Get all available slots
@@ -160,8 +229,8 @@ def get_appointments(db):
             'client': a.client.name,
             'service_id': a.service_id,
             'service': a.service.name,
-            'start_time': a.start_time.strftime('%Y-%m-%d %H:%M'),
-            'end_time': (a.start_time + timedelta(minutes=a.service.duration)).strftime('%Y-%m-%d %H:%M'),
+            'start_time': a.start_time.strftime('%H:%M'),
+            'end_time': (a.start_time + timedelta(minutes=a.service.duration)).strftime('%H:%M'),
             'duration': a.service.duration,
             'day': a.day,
         }

@@ -1,3 +1,4 @@
 appointments.db
 __pycache__/
 venv/
+static/schedule_plot.html
