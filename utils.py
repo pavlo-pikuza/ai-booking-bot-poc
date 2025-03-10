@@ -137,9 +137,10 @@ def shedule_plot(df, current_time, output_file="static/schedule_plot.html"):
 
     fig.update_layout(
         title="Weekly Shedule",
+        margin=dict(l=20, r=30, t=50, b=30),
         xaxis=dict(
             tickformat="%H:%M",
-            title="Time",
+            title="",
             range=[pd.to_datetime("08:55", format="%H:%M"), pd.to_datetime("16:05", format="%H:%M")],
         ),
         yaxis=dict(
@@ -163,3 +164,4 @@ def shedule_plot(df, current_time, output_file="static/schedule_plot.html"):
 
     #fig.show()
     fig.write_html(output_file)
+
