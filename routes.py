@@ -38,6 +38,7 @@ def db_session_handler(func):
 
 @db_session_handler
 def advance_time(db):
+    """Contain logic of time current time culculations. Updates 'current_time' and shedule plot"""
     global simulation_time
     if clock_running:
         simulation_time += timedelta(minutes=1)
@@ -52,8 +53,16 @@ def advance_time(db):
         
             simulation_time = datetime.strptime(f"1970-01-0{5 + WORK_DAYS.index(next_day)} 08:59", "%Y-%m-%d %H:%M")
 
-        appointments = get_appointments(db)
+        appointments = get_appointments_for_plot(db)
         shedule_plot(appointments, simulation_time)
+
+## Routes
+@app.route('/')
+@db_session_handler
+def index(db):
+    appointments = get_appointments_for_plot(db)
+    shedule_plot(appointments, simulation_time)
+    return render_template('index.html')
 
 @app.route("/time", methods=["GET", "POST"])
 def get_time():
@@ -96,27 +105,6 @@ def get_time():
         "status": "running" if clock_running else "stopped"
     })
 
-@app.route("/plot_data")
-def plot_data():
-    with open("static/schedule_plot.html", "r", encoding="utf-8") as f:
-        plot_html = f.read()
-    return jsonify({"plot": plot_html})
-
-@app.route('/')
-@db_session_handler
-def index(db):
-    appointments = get_appointments(db)
-    shedule_plot(appointments, simulation_time)
-    return render_template('index.html')
-
-# 🔹 GET /available_slots – Get all available slots
-@app.route('/available_slots', methods=['GET'])
-@db_session_handler
-def available_slots(db):
-    return jsonify(get_available_slots(db))
-
-
-# 🔹 GET /clients – Get all clients
 @app.route('/clients', methods=['GET'])
 @db_session_handler
 def get_clients(db):
@@ -124,7 +112,6 @@ def get_clients(db):
     result = [{'id': c.id, 'name': c.name} for c in clients]
     return jsonify(result)
 
-# 🔹 GET /services – Get all services
 @app.route('/services', methods=['GET'])
 @db_session_handler
 def get_services(db):
@@ -132,7 +119,12 @@ def get_services(db):
     result = [{'id': s.id, 'name': s.name, 'duration': s.duration} for s in services]
     return jsonify(result)
 
-# 🔹 GET /appointments – List all appointments
+
+@app.route('/available_slots', methods=['GET'])
+@db_session_handler
+def available_slots(db):
+    return jsonify(get_available_slots(db))
+
 @app.route('/appointments', methods=['GET'])
 @db_session_handler
 def get_all_appointments(db):
@@ -148,6 +140,24 @@ def get_all_appointments(db):
         for a in appointments
     ]
     return jsonify(result)
+
+def get_appointments_for_plot(db):
+    appointments = db.query(Appointment) \
+        .options(joinedload(Appointment.client), joinedload(Appointment.service)) \
+        .all()
+    result = [
+        {
+            'client': a.client.name,
+            'service': a.service.name,
+            'start_time': a.start_time.strftime('%H:%M'),
+            'end_time': (a.start_time + timedelta(minutes=a.service.duration)).strftime('%H:%M'),
+            'day': a.day,
+        }
+        for a in appointments
+    ]
+    return pd.DataFrame(result)
+
+
 
 # 🔹 POST /appointments – Add new appointment
 @app.route('/appointments', methods=['POST'])
@@ -217,26 +227,6 @@ def delete_appointment(db, appointment_id):
     db.commit()
     
     return jsonify({'message': 'Appointment deleted successfully'}), 200
-
-def get_appointments(db):
-    appointments = db.query(Appointment) \
-        .options(joinedload(Appointment.client), joinedload(Appointment.service)) \
-        .all()
-    result = [
-        {
-            'id': a.id,
-            'client_id': a.client_id,
-            'client': a.client.name,
-            'service_id': a.service_id,
-            'service': a.service.name,
-            'start_time': a.start_time.strftime('%H:%M'),
-            'end_time': (a.start_time + timedelta(minutes=a.service.duration)).strftime('%H:%M'),
-            'duration': a.service.duration,
-            'day': a.day,
-        }
-        for a in appointments
-    ]
-    return pd.DataFrame(result)
 
 def get_available_slots(db):
     appointments = db.query(Appointment).all()
