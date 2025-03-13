@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, create_engine, ForeignKey
+from sqlalchemy import Column, Integer, String, DateTime, Time, Boolean, create_engine, ForeignKey
 from sqlalchemy.orm import sessionmaker, declarative_base, Session, relationship, configure_mappers
 from datetime import datetime
 import os
@@ -36,8 +36,8 @@ class Appointment(Base):
     id = Column(Integer, primary_key=True, index=True)
     client_id = Column(Integer, ForeignKey("clients.id"))
     service_id = Column(Integer, ForeignKey("services.id"))
-    start_time = Column(DateTime)
-    day = Column(String)
+    start_time = Column(String, nullable=False)
+    day = Column(String, nullable=False)
 
     client = relationship("Client", back_populates="appointments")
     service = relationship("Service", back_populates="appointments")
@@ -47,8 +47,11 @@ class Conversation(Base):
     __tablename__ = "conversations"
     id = Column(Integer, primary_key=True, index=True)
     client_id = Column(Integer)
+    is_client = Column(String)
     message = Column(String)
-    timestamp = Column(DateTime, default=datetime.utcnow)
+    time = Column(String, nullable=False)
+    day = Column(String, nullable=False)
+    is_client_sender = Column(Boolean, default=True)
 
 def init_db():
     print("🛠  Creating tables in the database...")

@@ -1,12 +1,12 @@
 from flask import Flask, request, jsonify, render_template
 from sqlalchemy.orm import sessionmaker, Session, joinedload
 from sqlalchemy import and_, create_engine
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, time
 import os
 from dotenv import load_dotenv
-from database import Base, Appointment, Client, Service, SessionLocal
+from database import Base, Appointment, Client, Service, Conversation, SessionLocal
 import functools
-from utils import shedule_plot
+from utils import shedule_plot, time_add
 import pandas as pd
 
 # Load environment variables
@@ -20,7 +20,8 @@ BREAK_TIME = int(os.getenv("BREAK_TIME", 0))
 SLOT_DURATION = int(os.getenv("SLOT_DURATION", 0))
 WORK_DAYS = os.getenv("WORK_DAYS", "").split(",")
 
-simulation_time = datetime.strptime("Monday 09:00", "%A %H:%M")
+simulation_time = datetime.strptime("09:00", "%H:%M").time()
+simulation_day = "Monday"
 clock_running = True
 
 def db_session_handler(func):
@@ -41,32 +42,32 @@ def advance_time(db):
     """Contain logic of time current time culculations. Updates 'current_time' and shedule plot"""
     global simulation_time
     if clock_running:
-        simulation_time += timedelta(minutes=1)
+        simulation_time = time_add(simulation_time, minutes=1)
 
         if simulation_time.hour == 16 and simulation_time.minute == 1:
-            current_day = simulation_time.strftime("%A")
+            current_day = simulation_day
             current_day_index = WORK_DAYS.index(current_day)
             if current_day_index == len(WORK_DAYS) - 1:
                 next_day = WORK_DAYS[0]
             else:
                 next_day = WORK_DAYS[current_day_index + 1]
         
-            simulation_time = datetime.strptime(f"1970-01-0{5 + WORK_DAYS.index(next_day)} 08:59", "%Y-%m-%d %H:%M")
+            simulation_time = datetime.strptime(f"08:59", "%H:%M").time()
 
         appointments = get_appointments_for_plot(db)
-        shedule_plot(appointments, simulation_time)
+        shedule_plot(appointments, simulation_day, simulation_time)
 
 ## Routes
 @app.route('/')
 @db_session_handler
 def index(db):
     appointments = get_appointments_for_plot(db)
-    shedule_plot(appointments, simulation_time)
+    shedule_plot(appointments, simulation_day, simulation_time)
     return render_template('index.html')
 
 @app.route("/time", methods=["GET", "POST"])
 def get_time():
-    global clock_running, simulation_time
+    global clock_running, simulation_time, simulation_day
     if request.method == "POST":
         data = request.get_json()
 
@@ -91,17 +92,20 @@ def get_time():
                 if new_hour < 9 or new_hour > 15:
                     return jsonify({"error": "Invalid hour"}), 400
 
-                simulation_time = datetime.strptime(f"1970-01-0{5 + WORK_DAYS.index(day_name)} {new_hour}:{new_minute}", "%Y-%m-%d %H:%M")
+                simulation_time = datetime.strptime(f"{new_hour}:{new_minute}", "%H:%M").time()
+                simulation_day = day_name
 
                 return jsonify({"success": True,
-                                "time": simulation_time.strftime("%A %H:%M"),
+                                "day": simulation_day,
+                                "time": simulation_time.strftime("%H:%M"),
                                 "status": "running" if clock_running else "stopped"})
 
             except Exception as e:
                 return jsonify({"error": "Invalid time format", "message": str(e)}), 400
 
     return jsonify({
-        "time": simulation_time.strftime("%A %H:%M"),
+        "day": simulation_day,
+        "time": simulation_time.strftime("%H:%M"),
         "status": "running" if clock_running else "stopped"
     })
 
@@ -134,7 +138,7 @@ def get_all_appointments(db):
             'id': a.id,
             'client_id': a.client_id,
             'service_id': a.service_id,
-            'start_time': a.start_time.strftime('%Y-%m-%d %H:%M'),
+            'start_time': a.start_time,
             'day': a.day
         }
         for a in appointments
@@ -149,13 +153,68 @@ def get_appointments_for_plot(db):
         {
             'client': a.client.name,
             'service': a.service.name,
-            'start_time': a.start_time.strftime('%H:%M'),
-            'end_time': (a.start_time + timedelta(minutes=a.service.duration)).strftime('%H:%M'),
+            'start_time': a.start_time,
+            'end_time': time_add(datetime.strptime(a.start_time,"%H:%M"), minutes=a.service.duration),
             'day': a.day,
         }
         for a in appointments
     ]
     return pd.DataFrame(result)
+
+
+@app.route('/send_message', methods=['POST'])
+@db_session_handler
+def send_message(db):
+    global simulation_time, simulation_day
+
+    data = request.json
+    client_id = data.get("client_id")
+    message = data.get("message")
+    is_client_sender = data.get("is_client_sender")
+
+    print(f"client_id: {client_id} message: {message} data: {data} simul_day: {simulation_day} simul_time: {simulation_time}")
+
+    if not client_id or not message:
+        return jsonify({"error": "Missing client_id or message"}), 400
+
+    # Добавляем сообщение в базу
+    chat_message = Conversation(
+        client_id=client_id,
+        message=message,
+        time = simulation_time.strftime('%H:%M'),
+        day = simulation_day,
+        is_client_sender = is_client_sender
+    )
+    
+    db.add(chat_message)
+    db.commit()
+    db.refresh(chat_message)
+
+    return jsonify({
+        "id": chat_message.id,
+        "client_id": chat_message.client_id,
+        "message": chat_message.message,
+        "day": chat_message.day,
+        "time": chat_message.time
+    })
+
+@app.route('/chat_history/<int:client_id>', methods=['GET'])
+@db_session_handler
+def get_chat_history(db, client_id):
+    """Get chat history for target client"""
+    messages = db.query(Conversation).filter_by(client_id=client_id).order_by(Conversation.timestamp).all()
+
+    result = [
+        {
+            "id": msg.id,
+            "message": msg.message,
+            "timestamp": msg.timestamp.strftime('%H:%M:%S')
+        }
+        for msg in messages
+    ]
+    return jsonify(result)
+
+
 
 
 
@@ -174,12 +233,12 @@ def add_appointment(db):
         return jsonify({'error': 'Client or service not found'}), 404
 
     start_time = datetime.strptime(data['start_time'], '%Y-%m-%d %H:%M')
-    end_time = start_time + timedelta(minutes=service.duration)
+    end_time = time_add(start_time, minutes=service.duration)
 
     overlapping_appointments = db.query(Appointment).filter(
         and_(
             Appointment.start_time < end_time,
-            (Appointment.start_time + timedelta(minutes=db.query(Service.duration).filter(Service.id == Appointment.service_id).scalar())) > start_time
+            time_add(Appointment.start_time, minutes=db.query(Service.duration).filter(Service.id == Appointment.service_id).scalar()) > start_time
         )
     ).count()
 
@@ -240,18 +299,18 @@ def get_available_slots(db):
         end_time = datetime.strptime(f"{day} {WORK_HOURS_END}:00", "%A %H:%M")
         current_time = start_time
 
-        while current_time + timedelta(minutes=SLOT_DURATION) <= end_time:
+        while time_add(current_time, minutes=SLOT_DURATION) <= end_time:
             is_free = True
             for appointment in appointments:
                 app_start = appointment.start_time
-                app_end = app_start + timedelta(minutes=services.get(appointment.service_id, SLOT_DURATION))
+                app_end =  + time_add(app_start, minutes=services.get(appointment.service_id, SLOT_DURATION))
                 
-                if not (current_time >= app_end or current_time + timedelta(minutes=SLOT_DURATION) <= app_start):
+                if not (current_time >= app_end or time_add(current_time, minutes=SLOT_DURATION) <= app_start):
                     is_free = False
                     break
 
             if is_free:
                 slots[day].append(current_time.strftime("%H:%M"))
-            current_time += timedelta(minutes=SLOT_DURATION + BREAK_TIME)
+            current_time = time_add(current_time, minutes=SLOT_DURATION + BREAK_TIME)
     
     return slots

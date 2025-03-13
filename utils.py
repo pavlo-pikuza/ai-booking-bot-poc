@@ -5,6 +5,11 @@ import bisect
 import plotly.express as px
 from plotly import graph_objects as go 
 
+def time_add(time_obj, minutes, sign = '+'):
+    delta = timedelta(minutes=minutes)
+    new_time = (datetime.combine(datetime.today(), time_obj) + (delta if sign == '+' else -delta)).time()
+    return new_time
+
 def appoinments_gen(count, clients, services, work_days, work_hour_start, work_hour_end, break_time):
 
     appointments = []
@@ -20,18 +25,18 @@ def appoinments_gen(count, clients, services, work_days, work_hour_start, work_h
         hour = random.randint(work_hour_start, work_hour_end - 1)
         minute = random.choice([0, 0, 0, 10, 20, 30, 30, 40, 50])
 
-        start_time = datetime.strptime('1970-01-05', "%Y-%m-%d").replace(hour=hour, minute=minute, second=0)
-        end_time = start_time + timedelta(minutes=duration)
+        start_time = datetime.strptime(f'{hour}:{minute}', "%H:%M").time()
+        end_time = time_add(start_time,  duration)
 
         overlap = any(
             (appo['day'] == day) and (
-                (start_time >= appo['start_time'] and start_time < appo['end_time'] + timedelta(minutes = break_time)) or
-                (end_time > appo['start_time'] - timedelta(minutes = break_time) and end_time <= appo['end_time'])
+                (start_time >= appo['start_time'] and start_time < time_add(appo['end_time'], break_time)) or
+                (time_add(end_time, break_time) > appo['start_time'] and end_time <= appo['end_time'])
             )
             for appo in appointments
         )
 
-        is_late = True if end_time > datetime.strptime('1970-01-05', "%Y-%m-%d").replace(hour=16, minute=0, second=0) else False
+        is_late = True if end_time > datetime.strptime('16:00', "%H:%M").time() else False
 
         duplicate = any(
             (appo['day'] == day and appo['client_id'] == client and appo['service_id'] == service)
@@ -45,11 +50,10 @@ def appoinments_gen(count, clients, services, work_days, work_hour_start, work_h
 
         prev_appo = None
         next_appo = None
-
         if todays_appos:
-            start_times = [appo["start_time"] for appo in todays_appos]
+            start_times = [appo["start_time"].isoformat() for appo in todays_appos]
 
-            idx = bisect.bisect_right(start_times, start_time)
+            idx = bisect.bisect_right(start_times, start_time.strftime("%H:%M"))
 
             if idx > 0:
                 prev_appo = todays_appos[idx - 1]
@@ -59,11 +63,11 @@ def appoinments_gen(count, clients, services, work_days, work_hour_start, work_h
         
         long_waiting = False
         if prev_appo is not None:
-            if prev_appo['client_id'] == client and (start_time - prev_appo['end_time']).total_seconds() > break_time * 60:
+            if prev_appo['client_id'] == client and time_add(prev_appo['end_time'], break_time) > start_time:
                 long_waiting = True
 
         if next_appo is not None:
-            if next_appo['client_id'] == client and (next_appo['start_time'] - end_time).total_seconds() > break_time * 60:
+            if next_appo['client_id'] == client and time_add(end_time, break_time) > next_appo['start_time']:
                 long_waiting = True 
 
         if not overlap and not duplicate and not is_late and not long_waiting:
@@ -87,7 +91,7 @@ def appoinments_gen(count, clients, services, work_days, work_hour_start, work_h
 
 
 
-def shedule_plot(df, current_time, output_file="static/schedule_plot.html"):
+def shedule_plot(df, current_day, current_time, output_file="static/schedule_plot.html"):
     day_map = {
         "Monday":5,
         "Tuesday":4,
@@ -100,9 +104,6 @@ def shedule_plot(df, current_time, output_file="static/schedule_plot.html"):
     df["end_time_dt"] = pd.to_datetime(df["end_time"], format="%H:%M")
     df["day_start"] = df["day"].apply(lambda x: day_map.get(x) - 0.46)
     df["day_end"] = df["day"].apply(lambda x: day_map.get(x) + 0.46)
-
-    current_day = current_time.strftime("%A")
-    current_time = datetime.strptime(current_time.strftime("%H:%M"), "%H:%M")
     
     unique_services = df["service"].unique()
     unique_clients = df["client"].unique()
@@ -164,4 +165,3 @@ def shedule_plot(df, current_time, output_file="static/schedule_plot.html"):
 
     #fig.show()
     fig.write_html(output_file)
-
