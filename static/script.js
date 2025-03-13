@@ -1,6 +1,7 @@
 document.addEventListener("DOMContentLoaded", function () {
     fetchServices();
     fetchClientList();
+    fetchClients();
 
     const clock = document.getElementById("clock");
 
@@ -23,7 +24,8 @@ document.addEventListener("DOMContentLoaded", function () {
             .then(data => {
                 if (!data.time) return;
 
-                const [day, time] = data.time.split(" ");
+                const time = data.time;
+                const day = data.day;
                 const [hours, minutes] = time.split(":");
                 updatePlot()
                 clock.innerHTML = `<div class="clock-time">${hours}<span id="colon">:</span>${minutes}</div><div class="clock-day">${day}</div>`;
@@ -134,7 +136,70 @@ document.addEventListener("DOMContentLoaded", function () {
         })
         .catch(error => console.error("Error setting time:", error));
     });
+
+    document.getElementById("chat-send").addEventListener("click", function () {
+        sendMessage();
+    });
+
+    function sendMessage() {
+        const messageInput = document.querySelector(".chat-input input");
+        const message = messageInput.value.trim();
+        const clientId = document.querySelector(".client-selector").value;
+    
+        if (!message || !clientId) {
+            alert("Please select a client and type a message.");
+            return;
+        }
+    
+        fetch("/send_message", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({ client_id: clientId, message: message, is_client_sender: true })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                console.error("Error:", data.error);
+                return;
+            }
+    
+            // 1️⃣ Добавляем сообщение в историю чата
+            addMessageToChat(clientId, data.message, data.timestamp);
+    
+            // 2️⃣ Очищаем поле ввода
+            messageInput.value = "";
+    
+            // 3️⃣ Запускаем обработку чата (если нужно)
+            processChat();
+        })
+        .catch(error => console.error("Error sending message:", error));
+    }
+    
+    function loadChatHistory(clientId) {
+        fetch(`/chat_history/${clientId}`)
+        .then(response => response.json())
+        .then(messages => {
+            const chatHistory = document.querySelector(".chat-history");
+            chatHistory.innerHTML = ""; // Очищаем историю перед загрузкой
+    
+            messages.forEach(msg => {
+                addMessageToChat(clientId, msg.message, msg.timestamp);
+            });
+        })
+        .catch(error => console.error("Error loading chat history:", error));
+    }
+    
+    function addMessageToChat(clientId, message, timestamp) {
+        const chatHistory = document.querySelector(".chat-history");
+        const messageDiv = document.createElement("div");
+        messageDiv.classList.add("chat-message");
+        messageDiv.innerHTML = `<b>Client ${clientId}:</b> ${message} <span class="timestamp">(${timestamp})</span>`;
+        chatHistory.appendChild(messageDiv);
+    }
 });
+
 
 function fetchClients() {
     fetch('/clients')
@@ -150,6 +215,23 @@ function fetchClients() {
             });
         })
         .catch(error => console.error('Error loading clients:', error));
+}
+
+function fetchClients() {
+    fetch("/clients")
+        .then(response => response.json())
+        .then(data => {
+            const select = document.querySelector(".client-selector");
+            select.innerHTML = "";
+
+            data.forEach(client => {
+                let option = document.createElement("option");
+                option.value = client.id;
+                option.textContent = client.name;
+                select.appendChild(option);
+            });
+        })
+        .catch(error => console.error("Error loading clients:", error));
 }
 
 
