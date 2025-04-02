@@ -1,13 +1,13 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, time
 import pandas as pd
 import random
 import bisect
 import plotly.express as px
 from plotly import graph_objects as go 
 
-def time_add(time_obj, minutes, sign = '+'):
+def time_add(time_obj: time, minutes: int):
     delta = timedelta(minutes=minutes)
-    new_time = (datetime.combine(datetime.today(), time_obj) + (delta if sign == '+' else -delta)).time()
+    new_time = (datetime.combine(datetime.today().date(), time_obj) + delta).time()
     return new_time
 
 def appoinments_gen(count, clients, services, work_days, work_hour_start, work_hour_end, break_time):
@@ -36,7 +36,7 @@ def appoinments_gen(count, clients, services, work_days, work_hour_start, work_h
             for appo in appointments
         )
 
-        is_late = True if end_time > datetime.strptime('16:00', "%H:%M").time() else False
+        is_late = True if end_time > datetime.strptime(work_hour_end, "%H:%M").time() else False
 
         duplicate = any(
             (appo['day'] == day and appo['client_id'] == client and appo['service_id'] == service)
@@ -87,11 +87,18 @@ def appoinments_gen(count, clients, services, work_days, work_hour_start, work_h
                 'day': day
             })
 
+    for app in appointments:
+        app['start_time'] = app['start_time'].strftime("%H:%M")
+        app['end_time'] = app['end_time'].strftime("%H:%M")
+
+    for r in res:
+        r['start_time'] = r['start_time'].strftime("%H:%M")
+
     return res, appointments
 
 
 
-def shedule_plot(df, current_day, current_time, output_file="static/schedule_plot.html"):
+def shedule_plot(df, current_day:str, current_time:time, output_file="static/schedule_plot.html"):
     day_map = {
         "Monday":5,
         "Tuesday":4,
@@ -99,6 +106,8 @@ def shedule_plot(df, current_day, current_time, output_file="static/schedule_plo
         "Thursday":2,
         "Friday":1
     }
+
+    current_time_dt = pd.to_datetime(current_time.strftime("%H:%M"), format="%H:%M")
 
     df["start_time_dt"] = pd.to_datetime(df["start_time"], format="%H:%M")
     df["end_time_dt"] = pd.to_datetime(df["end_time"], format="%H:%M")
@@ -130,7 +139,7 @@ def shedule_plot(df, current_day, current_time, output_file="static/schedule_plo
             x=[row["start_time_dt"], row["end_time_dt"]],
             y=[(row["day_start"] + row["day_end"]) / 2] * 2,
             mode="text",
-            text=[f"<b>  {row['client']}<br>  {row['service']}<br>  ({row['start_time']}-<br>  -{row['end_time']})</b>"],  # Сам текст
+            text=[f"<b>  {row['client']}<br>  {row['service']}<br>  ({row['start_time']}-<br>  -{row['end_time']})</b>"],
             textposition="middle right",
             showlegend=False,
             hoverinfo="skip"
@@ -154,7 +163,7 @@ def shedule_plot(df, current_day, current_time, output_file="static/schedule_plo
     )
 
     fig.add_trace(go.Scatter(
-        x=[current_time, current_time],
+        x=[current_time_dt, current_time_dt],
         y=[day_map.get(current_day) - 0.48, day_map.get(current_day) + 0.48],
         mode="lines+markers",
         marker=dict(size=10, color="red", symbol="circle"),

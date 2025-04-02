@@ -20,8 +20,8 @@ BREAK_TIME = int(os.getenv("BREAK_TIME", 0))
 SLOT_DURATION = int(os.getenv("SLOT_DURATION", 0))
 WORK_DAYS = os.getenv("WORK_DAYS", "").split(",")
 
-simulation_time = datetime.strptime("09:00", "%H:%M").time()
-simulation_day = "Monday"
+simulation_time = datetime.strptime(f"{WORK_HOURS_START}:00", "%H:%M").time()
+simulation_day = WORK_DAYS[0]
 clock_running = True
 
 def db_session_handler(func):
@@ -154,7 +154,7 @@ def get_appointments_for_plot(db):
             'client': a.client.name,
             'service': a.service.name,
             'start_time': a.start_time,
-            'end_time': time_add(datetime.strptime(a.start_time,"%H:%M"), minutes=a.service.duration),
+            'end_time': time_add(datetime.strptime(a.start_time,"%H:%M").time(), minutes=a.service.duration).strftime("%H:%M"),
             'day': a.day,
         }
         for a in appointments
@@ -208,7 +208,9 @@ def get_chat_history(db, client_id):
         {
             "id": msg.id,
             "message": msg.message,
-            "timestamp": msg.timestamp.strftime('%H:%M:%S')
+            "is_client_sender": msg.is_client_sender,
+            "time": msg.time,
+            "day": msg.day
         }
         for msg in messages
     ]
@@ -232,13 +234,15 @@ def add_appointment(db):
     if not client or not service:
         return jsonify({'error': 'Client or service not found'}), 404
 
-    start_time = datetime.strptime(data['start_time'], '%Y-%m-%d %H:%M')
+    start_time = datetime.strptime(data['start_time'], '%H:%M').time()
     end_time = time_add(start_time, minutes=service.duration)
 
     overlapping_appointments = db.query(Appointment).filter(
         and_(
-            Appointment.start_time < end_time,
-            time_add(Appointment.start_time, minutes=db.query(Service.duration).filter(Service.id == Appointment.service_id).scalar()) > start_time
+            datetime.strptime(Appointment.start_time, '%H:%M').time() < end_time,
+            time_add(
+                datetime.strptime(Appointment.start_time, '%H:%M').time(),
+                minutes=db.query(Service.duration).filter(Service.id == Appointment.service_id).scalar()) > start_time
         )
     ).count()
 
@@ -267,7 +271,7 @@ def reschedule_appointment(db, appointment_id):
 
     data = request.get_json()
     if 'start_time' in data:
-        appointment.start_time = datetime.strptime(data['start_time'], '%Y-%m-%d %H:%M')
+        appointment.start_time = datetime.strptime(data['start_time'], '%H:%M').time()
         db.commit()
         return jsonify({'message': 'Appointment rescheduled successfully'}), 200
     
@@ -295,8 +299,8 @@ def get_available_slots(db):
 
     for day in WORK_DAYS:
         slots[day] = []
-        start_time = datetime.strptime(f"{day} {WORK_HOURS_START}:00", "%A %H:%M")
-        end_time = datetime.strptime(f"{day} {WORK_HOURS_END}:00", "%A %H:%M")
+        start_time = datetime.strptime(f"{WORK_HOURS_START}:00", "%H:%M").time()
+        end_time = datetime.strptime(f"{WORK_HOURS_END}:00", "%H:%M").time()
         current_time = start_time
 
         while time_add(current_time, minutes=SLOT_DURATION) <= end_time:
