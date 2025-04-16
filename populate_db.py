@@ -1,9 +1,10 @@
 from sqlalchemy.orm import Session
-from database import Base, SessionLocal, Client, Service, Appointment, engine
+from database import Client, Service, Appointment, SimulationState, engine, Base, SessionLocal
 import random
 import os
 from dotenv import load_dotenv
 from utils import appoinments_gen
+import datetime
 
 load_dotenv()
 
@@ -63,6 +64,21 @@ def populate_db():
             ]
             db.add_all(appointments_alch)
             db.commit()
+
+        existing = db.query(SimulationState).get(1)
+        if not existing:
+            default_time = datetime.strptime(f"{WORK_HOURS_START}:00", "%H:%M").time()
+            new_state = SimulationState(
+                id=1,
+                day=WORK_DAYS[0],
+                time=default_time.strftime("%H:%M"),
+                running=True
+            )
+            db.add(new_state)
+            db.commit()
+            print("✅ Simulation state initialized.")
+        else:
+            print("ℹ️ Simulation state already exists.")
 
     except Exception as e:
         db.rollback()  # Откат транзакции в случае ошибки

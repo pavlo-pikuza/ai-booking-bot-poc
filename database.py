@@ -47,11 +47,27 @@ class Conversation(Base):
     __tablename__ = "conversations"
     id = Column(Integer, primary_key=True, index=True)
     client_id = Column(Integer)
-    is_client = Column(String)
     message = Column(String)
     time = Column(String, nullable=False)
     day = Column(String, nullable=False)
     is_client_sender = Column(Boolean, default=True)
+
+# Web sessions
+class ClientSession(Base):
+    __tablename__ = "client_sessions"
+    id = Column(Integer, primary_key=True)
+    session_id = Column(String, unique=True)
+    client_id = Column(Integer, unique=True)
+    assigned_at = Column(DateTime, default=datetime.utcnow)
+
+# Simulation day and time - just one row
+class SimulationState(Base):
+    __tablename__ = "simulation_state"
+
+    id = Column(Integer, primary_key=True, default=1)
+    day = Column(String)
+    time = Column(String)
+    is_running = Column(Boolean)
 
 def init_db():
     print("🛠  Creating tables in the database...")

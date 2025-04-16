@@ -5,7 +5,7 @@ import bisect
 import plotly.express as px
 from plotly import graph_objects as go 
 
-def time_add(time_obj: time, minutes: int):
+def time_add(time_obj: time, minutes: int) -> time:
     delta = timedelta(minutes=minutes)
     new_time = (datetime.combine(datetime.today().date(), time_obj) + delta).time()
     return new_time

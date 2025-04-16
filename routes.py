@@ -1,13 +1,14 @@
 from flask import Flask, request, jsonify, render_template
 from sqlalchemy.orm import sessionmaker, Session, joinedload
-from sqlalchemy import and_, create_engine
+from sqlalchemy import and_, create_engine, case
 from datetime import datetime, timedelta, time
 import os
 from dotenv import load_dotenv
-from database import Base, Appointment, Client, Service, Conversation, SessionLocal
+from database import Base, Appointment, Client, Service, Conversation, SimulationState, ClientSession, SessionLocal
 import functools
 from utils import shedule_plot, time_add
 import pandas as pd
+import threading
 
 # Load environment variables
 load_dotenv()
@@ -20,9 +21,8 @@ BREAK_TIME = int(os.getenv("BREAK_TIME", 0))
 SLOT_DURATION = int(os.getenv("SLOT_DURATION", 0))
 WORK_DAYS = os.getenv("WORK_DAYS", "").split(",")
 
-simulation_time = datetime.strptime(f"{WORK_HOURS_START}:00", "%H:%M").time()
-simulation_day = WORK_DAYS[0]
 clock_running = True
+time_lock = threading.Lock()
 
 def db_session_handler(func):
     """Decorator to handle database session management and error handling."""
@@ -38,76 +38,95 @@ def db_session_handler(func):
     return wrapper
 
 @db_session_handler
+def clear_conversation_table(db):
+    db.query(Conversation).delete()
+    db.commit()
+
+@db_session_handler
+def release_client(db, session_id):
+    db.query(ClientSession).filter_by(session_id=session_id).delete()
+    db.commit()
+
+@db_session_handler
 def advance_time(db):
     """Contain logic of time current time culculations. Updates 'current_time' and shedule plot"""
-    global simulation_time
-    if clock_running:
-        simulation_time = time_add(simulation_time, minutes=1)
 
-        if simulation_time.hour == 16 and simulation_time.minute == 1:
-            current_day = simulation_day
-            current_day_index = WORK_DAYS.index(current_day)
-            if current_day_index == len(WORK_DAYS) - 1:
-                next_day = WORK_DAYS[0]
-            else:
-                next_day = WORK_DAYS[current_day_index + 1]
-        
-            simulation_time = datetime.strptime(f"08:59", "%H:%M").time()
+    #if clock_running:
 
-        appointments = get_appointments_for_plot(db)
-        shedule_plot(appointments, simulation_day, simulation_time)
+    state = db.query(SimulationState).get(1)
+    if not state or not state.running:
+        return
+    
+    current_time = datetime.strptime(state.time, "%H:%M").time()
+    new_time = time_add(current_time, minutes=1)
+
+    if new_time.hour >= 16 and new_time.minute >= 1:
+        state.day = "Monday" if state.day == "Friday" else WORK_DAYS[WORK_DAYS.index(state.day) + 1]
+        new_time = datetime.strptime("08:59", "%H:%M").time()
+        clear_conversation_table(db)
+    else:
+        print(f"{state.day} {new_time}")
+
+    state.time = new_time.strftime("%H:%M")
+    db.commit()
+
+    appos = get_appointments_for_plot(db)
+    shedule_plot(appos, state.day, state.time)
 
 ## Routes
 @app.route('/')
 @db_session_handler
 def index(db):
-    appointments = get_appointments_for_plot(db)
-    shedule_plot(appointments, simulation_day, simulation_time)
+    appos = get_appointments_for_plot(db)
+    shedule_plot(appos, simulation_day, simulation_time)
     return render_template('index.html')
 
-@app.route("/time", methods=["GET", "POST"])
+@app.route("/time", methods=["GET"])
 def get_time():
+    with time_lock:
+        return jsonify({
+            "day": simulation_day,
+            "time": simulation_time.strftime("%H:%M"),
+            "status": "running" if clock_running else "stopped"
+        })
+
+@app.route("/time", methods=["POST"])
+def set_time():
     global clock_running, simulation_time, simulation_day
-    if request.method == "POST":
-        data = request.get_json()
+    data = request.get_json()
 
-        if not data:
-            return jsonify({"error": "No data received"}), 400
+    if not data:
+        return jsonify({"error": "No data received"}), 400
 
-        if data.get("action") == "toggle":
-            clock_running = not clock_running
+    if data.get("action") == "toggle":
+        clock_running = not clock_running
 
-        elif data.get("action") == "set":
-            try:
-                new_time = data.get("time")  # "Monday 10:15"
-                if not new_time:
-                    return jsonify({"error": "No time provided"}), 400
+    elif data.get("action") == "set":
+        try:
+            new_time = data.get("time")
+            new_day = data.get("day")
+            if not new_time:
+                return jsonify({"error": "No time provided"}), 400
 
-                day_name, time_str = new_time.split(" ")
-                new_hour, new_minute = map(int, time_str.split(":"))
+            new_hour, new_minute = map(int, new_time.split(":"))
 
-                if day_name not in WORK_DAYS:
-                    return jsonify({"error": "Invalid day"}), 400
-                
-                if new_hour < 9 or new_hour > 15:
-                    return jsonify({"error": "Invalid hour"}), 400
+            if new_day not in WORK_DAYS:
+                return jsonify({"error": "Invalid day"}), 400
+            
+            if new_hour < 9 or new_hour > 15:
+                return jsonify({"error": "Invalid hour"}), 400
 
+            with time_lock:
                 simulation_time = datetime.strptime(f"{new_hour}:{new_minute}", "%H:%M").time()
-                simulation_day = day_name
+                simulation_day = new_day
 
-                return jsonify({"success": True,
-                                "day": simulation_day,
-                                "time": simulation_time.strftime("%H:%M"),
-                                "status": "running" if clock_running else "stopped"})
+            return jsonify({"success": True,
+                            "day": simulation_day,
+                            "time": simulation_time.strftime("%H:%M"),
+                            "status": "running" if clock_running else "stopped"})
 
-            except Exception as e:
-                return jsonify({"error": "Invalid time format", "message": str(e)}), 400
-
-    return jsonify({
-        "day": simulation_day,
-        "time": simulation_time.strftime("%H:%M"),
-        "status": "running" if clock_running else "stopped"
-    })
+        except Exception as e:
+            return jsonify({"error": "Invalid time format", "message": str(e)}), 400
 
 @app.route('/clients', methods=['GET'])
 @db_session_handler
@@ -202,7 +221,18 @@ def send_message(db):
 @db_session_handler
 def get_chat_history(db, client_id):
     """Get chat history for target client"""
-    messages = db.query(Conversation).filter_by(client_id=client_id).order_by(Conversation.timestamp).all()
+
+    day_order = case(
+        (Conversation.day == 'Sunday', 0),
+        (Conversation.day == 'Monday', 1),
+        (Conversation.day == 'Tuesday', 2),
+        (Conversation.day == 'Wednesday', 3),
+        (Conversation.day == 'Thursday', 4),
+        (Conversation.day == 'Friday', 5),
+        (Conversation.day == 'Saturday', 6),
+    )
+
+    messages = db.query(Conversation).filter_by(client_id=client_id).order_by(day_order, Conversation.time).all()
 
     result = [
         {

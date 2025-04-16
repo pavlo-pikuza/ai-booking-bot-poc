@@ -1,14 +1,91 @@
 document.addEventListener("DOMContentLoaded", function () {
-    fetchServices();
-    fetchClientList();
-    fetchClients();
-
     const clock = document.getElementById("clock");
+    const clientSelector = document.querySelector(".client-selector");
+    const setTimeBtn = document.getElementById("set-time-btn");
 
-    let isRunning = true;
+    const readMeModal = document.getElementById("readme-modal");
+    const readMeBtn = document.getElementById("readMe");
+    const readMeModalClose = document.getElementById("readme-modal-close-btn");
+
+    const timeModal = document.getElementById("time-modal");
+    const openTimeModal = document.getElementById("open-time-modal");
+
+    const chatHistory = document.querySelector(".chat-history");
+    const messageInput = document.querySelector(".chat-input input")
+    const chatSendBtn = document.getElementById("chat-send");
+    
+    let isRunning = true;    
+    let client_id = null
     let timeUpdater = null;
+    
+    readMeBtn.addEventListener("click", () => {
+        readMeModal.style.display = "flex";
+    });
+    
+    readMeModalClose.addEventListener("click", () => {
+        readMeModal.style.display = "none";
+    });
+    
+    window.addEventListener("click", (event) => {
+        if (event.target === readMeModal) {
+            readMeModal.style.display = "none";
+        }
+    }); 
+
+    window.addEventListener("click", function (event) {
+        if (event.target === timeModal) {
+            timeModal.style.display = "none";
+        }
+    });
+    
+    openTimeModal.addEventListener("click", function () {
+        timeModal.style.display = "flex";
+    });
+        
+
+    clock.addEventListener("click", toggleClock);
+
+    chatSendBtn.addEventListener("click", function () {
+        sendMessage();
+    });
+
+    clientSelector.addEventListener("change", function () {
+        client_id = this.value;
+        if (client_id) {
+            messageInput.value = "";
+            loadChatHistory(client_id);
+        }
+    });
+
+    setTimeBtn.addEventListener("click", function () {
+        const selectedDay = document.getElementById("day-select").value;
+        const selectedHour = document.getElementById("hour-input").value;
+        const selectedMinute = document.getElementById("minute-input").value;
+
+        fetch("/time", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                action: "set",
+                time: `${selectedHour}:${selectedMinute}`,
+                day: `${selectedDay}`
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                alert("Time updated successfully!");
+                timeModal.style.display = "none";
+                updateTimeAndPlot();
+            } else {
+                alert("Error updating time.");
+            }
+        })
+        .catch(error => console.error("Error setting time:", error));
+    });
 
 
+    /////
     fetch("/time")
         .then(response => response.json())
         .then(data => {
@@ -16,52 +93,29 @@ document.addEventListener("DOMContentLoaded", function () {
             handleTimeUpdates(isRunning);
         });
 
-    clock.addEventListener("click", toggleClock);
+    fetchServices()
+    fetchClientList()
+    fetchClients()
 
+    if (clientSelector.value) {
+        loadChatHistory(clientSelector.value);
+    }
+
+    //// functions
     function updateTimeAndPlot() {
         fetch("/time")
             .then(response => response.json())
             .then(data => {
                 if (!data.time) return;
 
-                const time = data.time;
+                const [hours, minutes] = data.time.split(":");
                 const day = data.day;
-                const [hours, minutes] = time.split(":");
+
                 updatePlot()
                 clock.innerHTML = `<div class="clock-time">${hours}<span id="colon">:</span>${minutes}</div><div class="clock-day">${day}</div>`;
                 updateClockAppearance(data.status);
             })
             .catch(error => console.error("Error fetching time:", error));
-    }
-
-    function toggleClock() {
-        fetch("/time", { 
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json"
-            },
-            body: JSON.stringify({ action: "toggle" })
-        })
-            .then(response => response.json())
-            .then(data => {
-                isRunning = data.status === "running";
-                updateClockAppearance(isRunning);
-                handleTimeUpdates(isRunning);
-            })
-            .catch(error => console.error("Error toggling clock:", error));
-    }
-
-    function updateClockAppearance(isRunning) {
-        const colon = document.getElementById("colon");
-        if (isRunning) {
-            clock.classList.remove("clock-stopped");
-            clock.setAttribute("title", "Stop");
-            if (colon) colon.classList.add("blink");
-        } else {
-            clock.classList.add("clock-stopped");
-            clock.setAttribute("title", "Start");
-            if (colon) colon.classList.remove("blink");
-        }
     }
 
     function updatePlot() {
@@ -91,6 +145,35 @@ document.addEventListener("DOMContentLoaded", function () {
         };
     }
 
+    function updateClockAppearance(isRunning) {
+        const colon = document.getElementById("colon");
+        if (isRunning) {
+            clock.classList.remove("clock-stopped");
+            clock.setAttribute("title", "Stop");
+            if (colon) colon.classList.add("blink");
+        } else {
+            clock.classList.add("clock-stopped");
+            clock.setAttribute("title", "Start");
+            if (colon) colon.classList.remove("blink");
+        }
+    }
+
+    function toggleClock() {
+        fetch("/time", { 
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({ action: "toggle" })
+        })
+            .then(response => response.json())
+            .then(data => {
+                isRunning = data.status === "running";
+                updateClockAppearance(isRunning);
+                handleTimeUpdates(isRunning);
+            })
+            .catch(error => console.error("Error toggling clock:", error));
+    }
 
     function handleTimeUpdates(isRunning) {
         if (isRunning) {
@@ -103,51 +186,101 @@ document.addEventListener("DOMContentLoaded", function () {
             timeUpdater = null;
         }
     }
-
-
-    // manual time change
-    const timeModal = document.getElementById("time-modal");
-    const openTimeModal = document.getElementById("open-time-modal");
-    const closeTimeModal = document.getElementById("close-time-modal");
-    const setTimeBtn = document.getElementById("set-time-btn");
-
-    setTimeBtn.addEventListener("click", function () {
-        const selectedDay = document.getElementById("day-select").value;
-        const selectedHour = document.getElementById("hour-input").value;
-        const selectedMinute = document.getElementById("minute-input").value;
-
-        fetch("/time", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                action: "set",
-                time: `${selectedDay} ${selectedHour}:${selectedMinute}`
-            })
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                alert("Time updated successfully!");
-                timeModal.style.display = "none";
-                updateTimeAndPlot();
-            } else {
-                alert("Error updating time.");
-            }
-        })
-        .catch(error => console.error("Error setting time:", error));
-    });
-
-    document.getElementById("chat-send").addEventListener("click", function () {
-        sendMessage();
-    });
-
-    function sendMessage() {
-        const messageInput = document.querySelector(".chat-input input");
-        const message = messageInput.value.trim();
-        const clientId = document.querySelector(".client-selector").value;
     
-        if (!message || !clientId) {
-            alert("Please select a client and type a message.");
+    function loadChatHistory(clientId) {
+
+        fetch(`/chat_history/${clientId}`)
+        .then(response => response.json())
+        .then(messages => {
+            chatHistory.innerHTML = "";
+    
+            messages.forEach(msg => {
+                addMessageToChat(msg.message, msg.day, msg.time, msg.is_client_sender);
+            });
+        })
+        .catch(error => console.error("Error loading chat history:", error));
+    }
+
+    function addMessageToChat(message, day, time, isClientSender = true) {
+        const messageDiv = document.createElement("div");
+        messageDiv.classList.add("chat-message", isClientSender ? "client-message" : "bot-message");
+
+        const dayAbbr = day.slice(0, 3);
+        const formattedTime = `${dayAbbr} ${time}`;
+    
+        messageDiv.innerHTML = `
+            <span class="timestamp">${formattedTime}</span>
+           ${message}
+        `;
+        chatHistory.appendChild(messageDiv);
+        chatHistory.scrollTop = chatHistory.scrollHeight;
+    }
+
+    // for chat
+    function fetchClients() {
+        fetch("/clients")
+            .then(response => response.json())
+            .then(data => {
+                const select = document.querySelector(".client-selector");
+                select.innerHTML = "";
+                data.forEach(client => {
+                    let option = document.createElement("option");
+                    option.value = client.id;
+                    option.textContent = client.name;
+                    select.appendChild(option);
+                });
+                if (data.length > 0) {
+                    client_id = data[0].id;
+                    loadChatHistory(client_id);
+                }
+            })
+            .catch(error => console.error("Error loading clients:", error));
+    }
+
+    // for Readme form
+    function fetchClientList() {
+        fetch('/clients')
+            .then(response => response.json())
+            .then(clients => {
+                const clientList = document.getElementById("clients-list");
+
+                if (clients.length > 0) {
+                    clientList.innerHTML = "Clients - <b>" + clients
+                        .map(clients => `${clients.name}`)
+                        .join(", ") + "</b> (you can select) would like to make some changes in their appointments. Avaulable chat options:";
+                } else {
+                    clientList.innerHTML = "No client in DB available.";
+                }
+            })
+            .catch(error => console.error('Error loading clients:', error));
+    }
+
+    // for Readme form
+    function fetchServices() {
+        fetch('/services')
+            .then(response => response.json())
+            .then(services => {
+                const servicesList = document.getElementById("services-list");
+                servicesList.innerHTML = "";
+
+                services.forEach(service => {
+                    const li = document.createElement("li");
+                    li.textContent = `${service.name} (${service.duration} min)`;
+                    servicesList.appendChild(li);
+                });
+            })
+            .catch(error => console.error("❌ Error loading services:", error));
+    }
+
+    function processChat(message) {
+        console.log("🧠 Message processing:", message);
+    }
+    
+    function sendMessage() {
+        const message = messageInput.value.trim();
+    
+        if (!message || !client_id) {
+            alert(`Please type a message first! Message:"${message}".`);
             return;
         }
     
@@ -156,7 +289,7 @@ document.addEventListener("DOMContentLoaded", function () {
             headers: {
                 "Content-Type": "application/json"
             },
-            body: JSON.stringify({ client_id: clientId, message: message, is_client_sender: true })
+            body: JSON.stringify({ client_id: client_id, message: message, is_client_sender: true })
         })
         .then(response => response.json())
         .then(data => {
@@ -165,152 +298,10 @@ document.addEventListener("DOMContentLoaded", function () {
                 return;
             }
     
-            // 1️⃣ Добавляем сообщение в историю чата
-            addMessageToChat(clientId, data.message, data.timestamp);
-    
-            // 2️⃣ Очищаем поле ввода
+            addMessageToChat(data.message, data.day, data.time, isClientSender = true);
             messageInput.value = "";
-    
-            // 3️⃣ Запускаем обработку чата (если нужно)
             processChat();
         })
         .catch(error => console.error("Error sending message:", error));
     }
-    
-    function loadChatHistory(clientId) {
-        fetch(`/chat_history/${clientId}`)
-        .then(response => response.json())
-        .then(messages => {
-            const chatHistory = document.querySelector(".chat-history");
-            chatHistory.innerHTML = ""; // Очищаем историю перед загрузкой
-    
-            messages.forEach(msg => {
-                addMessageToChat(clientId, msg.message, msg.timestamp);
-            });
-        })
-        .catch(error => console.error("Error loading chat history:", error));
-    }
-    
-    function addMessageToChat(clientId, message, timestamp) {
-        const chatHistory = document.querySelector(".chat-history");
-        const messageDiv = document.createElement("div");
-        messageDiv.classList.add("chat-message");
-        messageDiv.innerHTML = `<b>Client ${clientId}:</b> ${message} <span class="timestamp">(${timestamp})</span>`;
-        chatHistory.appendChild(messageDiv);
-    }
 });
-
-
-function fetchClients() {
-    fetch('/clients')
-        .then(response => response.json())
-        .then(data => {
-            const clientSelector = document.querySelector('.client-selector');
-            clientSelector.innerHTML = '';
-            data.forEach(client => {
-                const option = document.createElement('option');
-                option.value = client.id;
-                option.textContent = client.name;
-                clientSelector.appendChild(option);
-            });
-        })
-        .catch(error => console.error('Error loading clients:', error));
-}
-
-function fetchClients() {
-    fetch("/clients")
-        .then(response => response.json())
-        .then(data => {
-            const select = document.querySelector(".client-selector");
-            select.innerHTML = "";
-
-            data.forEach(client => {
-                let option = document.createElement("option");
-                option.value = client.id;
-                option.textContent = client.name;
-                select.appendChild(option);
-            });
-        })
-        .catch(error => console.error("Error loading clients:", error));
-}
-
-
-function fetchClientList() {
-    fetch('/clients')
-        .then(response => response.json())
-        .then(clients => {
-            const clientList = document.getElementById("clients-list");
-
-            if (clients.length > 0) {
-                clientList.innerHTML = "Clients - <b>" + clients
-                    .map(clients => `${clients.name}`)
-                    .join(", ") + "</b> (you can select) would like to make some changes in their appointments. Avaulable chat options:";
-            } else {
-                clientList.innerHTML = "No client in DB available.";
-            }
-        })
-        .catch(error => console.error('Error loading clients:', error));
-}
-
-function fetchServices() {
-    fetch('/services')
-        .then(response => response.json())
-        .then(services => {
-            const servicesList = document.getElementById("services-list");
-            servicesList.innerHTML = "";
-
-            services.forEach(service => {
-                const li = document.createElement("li");
-                li.textContent = `${service.name} (${service.duration} min)`;
-                servicesList.appendChild(li);
-            });
-        })
-        .catch(error => console.error("❌ Error loading services:", error));
-}
-
-function downloadFile(data, filename, type) {
-    const blob = new Blob([data], { type: type });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-}
-
-
-
-const modal = document.getElementById("readme-modal");
-const readMeBtn = document.getElementById("readMe");
-const closeModal = document.getElementById("closeModal");
-
-readMeBtn.addEventListener("click", () => {
-    modal.style.display = "flex";
-});
-
-closeModal.addEventListener("click", () => {
-    modal.style.display = "none";
-});
-
-window.addEventListener("click", (event) => {
-    if (event.target === modal) {
-        modal.style.display = "none";
-    }
-}); 
-
-
-
-document.getElementById("open-time-modal").addEventListener("click", function () {
-    document.getElementById("time-modal").style.display = "flex";
-});
-
-function closeTimeModal() {
-    document.getElementById("time-modal").style.display = "none";
-}
-
-window.addEventListener("click", function (event) {
-    if (event.target === document.getElementById("time-modal")) {
-        closeTimeModal();
-    }
-});
-
