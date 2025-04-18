@@ -73,6 +73,8 @@ document.addEventListener("DOMContentLoaded", function () {
         })
         .then(response => response.json())
         .then(data => {
+            console.log("data:", data)
+            console.log("data.success:", data.success)
             if (data.success) {
                 alert("Time updated successfully!");
                 timeModal.style.display = "none";
@@ -89,7 +91,7 @@ document.addEventListener("DOMContentLoaded", function () {
     fetch("/time")
         .then(response => response.json())
         .then(data => {
-            updateClockAppearance(data.status);
+            updateClockAppearance(data.is_running==="True");
             handleTimeUpdates(isRunning);
         });
 
@@ -113,7 +115,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
                 updatePlot()
                 clock.innerHTML = `<div class="clock-time">${hours}<span id="colon">:</span>${minutes}</div><div class="clock-day">${day}</div>`;
-                updateClockAppearance(data.status);
+                updateClockAppearance(data.is_running==="True");
             })
             .catch(error => console.error("Error fetching time:", error));
     }
@@ -168,7 +170,7 @@ document.addEventListener("DOMContentLoaded", function () {
         })
             .then(response => response.json())
             .then(data => {
-                isRunning = data.status === "running";
+                isRunning = data.is_running === "True";
                 updateClockAppearance(isRunning);
                 handleTimeUpdates(isRunning);
             })

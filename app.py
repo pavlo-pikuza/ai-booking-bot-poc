@@ -1,8 +1,10 @@
-from routes import app, advance_time
+from routes import app
+from db_functions import db_session_handler, advance_time
 
 import threading
 import time
 
+@db_session_handler
 def time_loop():
     with app.app_context():
         while True:

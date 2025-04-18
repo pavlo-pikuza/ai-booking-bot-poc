@@ -1,14 +1,13 @@
 from flask import Flask, request, jsonify, render_template
-from sqlalchemy.orm import sessionmaker, Session, joinedload
-from sqlalchemy import and_, create_engine, case
-from datetime import datetime, timedelta, time
+from sqlalchemy import and_, case
+from datetime import datetime
 import os
 from dotenv import load_dotenv
-from database import Base, Appointment, Client, Service, Conversation, SimulationState, ClientSession, SessionLocal
-import functools
-from utils import shedule_plot, time_add
-import pandas as pd
+from database import Base, Appointment, Client, Service, Conversation, SimulationState
 import threading
+
+from utils import shedule_plot, time_add
+from db_functions import db_session_handler, get_appointments_for_plot, get_simulation_state
 
 # Load environment variables
 load_dotenv()
@@ -21,85 +20,45 @@ BREAK_TIME = int(os.getenv("BREAK_TIME", 0))
 SLOT_DURATION = int(os.getenv("SLOT_DURATION", 0))
 WORK_DAYS = os.getenv("WORK_DAYS", "").split(",")
 
-clock_running = True
 time_lock = threading.Lock()
 
-def db_session_handler(func):
-    """Decorator to handle database session management and error handling."""
-    @functools.wraps(func)
-    def wrapper(*args, **kwargs):
-        db: Session = SessionLocal()
-        try:
-            return func(db, *args, **kwargs)
-        except Exception as e:
-            return jsonify({"error": "Database error","function":f"{func.__name__}", "message":f"{e}"}), 500
-        finally:
-            db.close()
-    return wrapper
 
-@db_session_handler
-def clear_conversation_table(db):
-    db.query(Conversation).delete()
-    db.commit()
 
-@db_session_handler
-def release_client(db, session_id):
-    db.query(ClientSession).filter_by(session_id=session_id).delete()
-    db.commit()
-
-@db_session_handler
-def advance_time(db):
-    """Contain logic of time current time culculations. Updates 'current_time' and shedule plot"""
-
-    #if clock_running:
-
-    state = db.query(SimulationState).get(1)
-    if not state or not state.running:
-        return
-    
-    current_time = datetime.strptime(state.time, "%H:%M").time()
-    new_time = time_add(current_time, minutes=1)
-
-    if new_time.hour >= 16 and new_time.minute >= 1:
-        state.day = "Monday" if state.day == "Friday" else WORK_DAYS[WORK_DAYS.index(state.day) + 1]
-        new_time = datetime.strptime("08:59", "%H:%M").time()
-        clear_conversation_table(db)
-    else:
-        print(f"{state.day} {new_time}")
-
-    state.time = new_time.strftime("%H:%M")
-    db.commit()
-
-    appos = get_appointments_for_plot(db)
-    shedule_plot(appos, state.day, state.time)
-
-## Routes
 @app.route('/')
 @db_session_handler
 def index(db):
     appos = get_appointments_for_plot(db)
-    shedule_plot(appos, simulation_day, simulation_time)
+    state = get_simulation_state(db)
+    print(state['is_running'])
+    shedule_plot(appos, state['day'], datetime.strptime(state['time'], "%H:%M").time())
     return render_template('index.html')
 
+
 @app.route("/time", methods=["GET"])
-def get_time():
-    with time_lock:
-        return jsonify({
-            "day": simulation_day,
-            "time": simulation_time.strftime("%H:%M"),
-            "status": "running" if clock_running else "stopped"
-        })
+@db_session_handler
+def get_time(db):
+    res = jsonify(get_simulation_state(db))
+    return res
+
 
 @app.route("/time", methods=["POST"])
-def set_time():
-    global clock_running, simulation_time, simulation_day
+@db_session_handler
+def set_time(db):
     data = request.get_json()
+    print(data)
 
     if not data:
         return jsonify({"error": "No data received"}), 400
 
     if data.get("action") == "toggle":
-        clock_running = not clock_running
+        state = db.get(SimulationState, 1)
+        if state:
+            state.is_running = not state.is_running
+            db.commit()
+            return jsonify({
+                "success": True,
+                "is_running": state.is_running
+            }), 200
 
     elif data.get("action") == "set":
         try:
@@ -112,21 +71,27 @@ def set_time():
 
             if new_day not in WORK_DAYS:
                 return jsonify({"error": "Invalid day"}), 400
-            
+
             if new_hour < 9 or new_hour > 15:
                 return jsonify({"error": "Invalid hour"}), 400
 
-            with time_lock:
-                simulation_time = datetime.strptime(f"{new_hour}:{new_minute}", "%H:%M").time()
-                simulation_day = new_day
+            state = db.get(SimulationState, 1)
+            if not state:
+                return jsonify({"error": "Simulation state not found"}), 404
+
+            state.time = datetime.strftime(datetime.strptime(f"{new_hour}:{new_minute}", "%H:%M"), "%H:%M")
+            state.day = new_day
+
+            db.commit()
 
             return jsonify({"success": True,
-                            "day": simulation_day,
-                            "time": simulation_time.strftime("%H:%M"),
-                            "status": "running" if clock_running else "stopped"})
+                            "day": state.day,
+                            "time": state.time,
+                            "is_running": state.is_running})
 
         except Exception as e:
             return jsonify({"error": "Invalid time format", "message": str(e)}), 400
+    
 
 @app.route('/clients', methods=['GET'])
 @db_session_handler
@@ -134,6 +99,7 @@ def get_clients(db):
     clients = db.query(Client).all()
     result = [{'id': c.id, 'name': c.name} for c in clients]
     return jsonify(result)
+
 
 @app.route('/services', methods=['GET'])
 @db_session_handler
@@ -164,23 +130,6 @@ def get_all_appointments(db):
     ]
     return jsonify(result)
 
-def get_appointments_for_plot(db):
-    appointments = db.query(Appointment) \
-        .options(joinedload(Appointment.client), joinedload(Appointment.service)) \
-        .all()
-    result = [
-        {
-            'client': a.client.name,
-            'service': a.service.name,
-            'start_time': a.start_time,
-            'end_time': time_add(datetime.strptime(a.start_time,"%H:%M").time(), minutes=a.service.duration).strftime("%H:%M"),
-            'day': a.day,
-        }
-        for a in appointments
-    ]
-    return pd.DataFrame(result)
-
-
 @app.route('/send_message', methods=['POST'])
 @db_session_handler
 def send_message(db):
@@ -196,7 +145,6 @@ def send_message(db):
     if not client_id or not message:
         return jsonify({"error": "Missing client_id or message"}), 400
 
-    # Добавляем сообщение в базу
     chat_message = Conversation(
         client_id=client_id,
         message=message,

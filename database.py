@@ -69,6 +69,14 @@ class SimulationState(Base):
     time = Column(String)
     is_running = Column(Boolean)
 
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "day": self.day,
+            "time": self.time,
+            "is_running": self.is_running
+        }
+
 def init_db():
     print("🛠  Creating tables in the database...")
     Base.metadata.create_all(bind=engine)

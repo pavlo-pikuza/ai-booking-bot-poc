@@ -36,7 +36,7 @@ def appoinments_gen(count, clients, services, work_days, work_hour_start, work_h
             for appo in appointments
         )
 
-        is_late = True if end_time > datetime.strptime(work_hour_end, "%H:%M").time() else False
+        is_late = True if end_time > datetime.strptime(str(work_hour_end)+":00", "%H:%M").time() else False
 
         duplicate = any(
             (appo['day'] == day and appo['client_id'] == client and appo['service_id'] == service)
